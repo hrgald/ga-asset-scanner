@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#b90016">
+  <title>GA Management System | Scanner Aset</title>
+  <style>
+    :root{font-family:Arial,Helvetica,sans-serif;color:#321812;background:#fff8ef}
+    *{box-sizing:border-box}body{margin:0;padding:20px}
+    .card{max-width:560px;margin:18px auto;background:#fff;border:1px solid #ead9ca;border-radius:18px;padding:22px;box-shadow:0 5px 24px #32181212}
+    h1{font-size:23px;margin:0 0 8px;color:#a90014}p{color:#806b60;line-height:1.5;font-size:14px}
+    #reader{width:100%;min-height:250px;margin:18px 0;border:1px dashed #d8c8bd;border-radius:12px;overflow:hidden}
+    button,input{font:inherit}button{border:0;border-radius:9px;padding:12px 16px;background:#c90016;color:white;font-weight:700;cursor:pointer}button.secondary{background:#fff;color:#321812;border:1px solid #d8c8bd}button:disabled{opacity:.55;cursor:not-allowed}
+    .row{display:flex;gap:8px;flex-wrap:wrap}.row button{flex:1}#status{background:#fff8ef;border-radius:9px;padding:11px;font-size:13px;color:#725e54;min-height:40px}
+    .manual{display:flex;gap:8px;margin-top:12px}.manual input{min-width:0;flex:1;border:1px solid #d8c8bd;border-radius:9px;padding:11px}
+    .small{font-size:12px;color:#88786e}.success{color:#147a37!important;font-weight:700}.error{color:#a00016!important}
+    @media(max-width:480px){body{padding:10px}.card{padding:16px;margin:8px auto}h1{font-size:20px}.manual{flex-direction:column}}
+  </style>
+  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+</head>
+<body>
+  <main class="card">
+    <h1>Scan Barcode Aset</h1>
+    <p>Izinkan akses kamera, lalu arahkan barcode aset ke dalam bingkai. Halaman ini berjalan terpisah dari Google Apps Script agar browser dapat memberikan akses kamera.</p>
+    <div id="reader"></div>
+    <div id="status">Tekan “Mulai Kamera” untuk memulai pemindaian.</div>
+    <div class="row" style="margin-top:12px">
+      <button id="startBtn" type="button">Mulai Kamera</button>
+      <button id="stopBtn" class="secondary" type="button" disabled>Hentikan</button>
+    </div>
+    <div class="manual">
+      <input id="manualCode" type="text" placeholder="Atau masukkan kode barcode manual">
+      <button id="sendManual" type="button">Kirim Kode</button>
+    </div>
+    <p class="small">Jika kamera tidak muncul, periksa izin kamera browser dan pastikan halaman dibuka melalui HTTPS.</p>
+  </main>
+<script>
+(function(){
+  const statusEl=document.getElementById('status');
+  const startBtn=document.getElementById('startBtn');
+  const stopBtn=document.getElementById('stopBtn');
+  let scanner=null, locked=false;
+  function status(message,kind){statusEl.textContent=message;statusEl.className=kind||'';}
+  function returnCode(value){
+    const code=String(value||'').trim();
+    if(!code)return status('Masukkan atau pindai kode barcode terlebih dahulu.','error');
+    locked=true;
+    status('Barcode terbaca: '+code+'. Mengirim hasil ke GA Management System...','success');
+    if(window.opener&&!window.opener.closed){
+      window.opener.postMessage({type:'GA_ASSET_BARCODE_SCAN',code:code},'*');
+      setTimeout(()=>window.close(),650);
+    }else{
+      status('Kode terbaca: '+code+'. Jendela aplikasi utama tidak ditemukan. Salin kode ini dan cari secara manual.','success');
+      document.getElementById('manualCode').value=code;
+    }
+  }
+  async function stopCamera(){
+    if(scanner){try{await scanner.stop();}catch(e){}try{scanner.clear();}catch(e){}scanner=null;}
+    startBtn.disabled=false;stopBtn.disabled=true;
+  }
+  async function startCamera(){
+    if(typeof Html5Qrcode==='undefined')return status('Library scanner gagal dimuat. Periksa koneksi internet, lalu muat ulang halaman.','error');
+    locked=false;startBtn.disabled=true;status('Memeriksa kamera...');
+    try{
+      const cameras=await Html5Qrcode.getCameras();
+      if(!cameras||!cameras.length)throw new Error('Kamera tidak ditemukan.');
+      const selected=cameras.find(c=>/back|environment|belakang/i.test(c.label))||cameras[0];
+      scanner=new Html5Qrcode('reader',{formatsToSupport:[Html5QrcodeSupportedFormats.CODE_128,Html5QrcodeSupportedFormats.CODE_39,Html5QrcodeSupportedFormats.EAN_13,Html5QrcodeSupportedFormats.EAN_8,Html5QrcodeSupportedFormats.QR_CODE]});
+      await scanner.start(selected.id,{fps:10,qrbox:{width:280,height:150},aspectRatio:1.5},async decoded=>{
+        if(locked)return;
+        await stopCamera();
+        returnCode(decoded);
+      },()=>{});
+      stopBtn.disabled=false;status('Kamera aktif. Arahkan barcode ke bingkai pemindai.');
+    }catch(err){
+      await stopCamera();
+      const msg=err&&err.message?err.message:String(err);
+      status('Kamera tidak dapat dijalankan: '+msg+'. Pastikan izin kamera diberikan dan halaman dibuka melalui HTTPS.','error');
+    }
+  }
+  startBtn.addEventListener('click',startCamera);
+  stopBtn.addEventListener('click',async()=>{await stopCamera();status('Pemindaian dihentikan.');});
+  document.getElementById('sendManual').addEventListener('click',()=>returnCode(document.getElementById('manualCode').value));
+  document.getElementById('manualCode').addEventListener('keydown',e=>{if(e.key==='Enter')returnCode(e.target.value);});
+  window.addEventListener('beforeunload',()=>{if(scanner)scanner.stop().catch(()=>{});});
+})();
+</script>
+</body>
+</html>
